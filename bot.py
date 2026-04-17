@@ -4,6 +4,8 @@ import asyncio
 import yt_dlp
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
 # ================= НАСТРОЙКИ =================
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -15,6 +17,31 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# ================= HEALTH CHECK СЕРВЕР =================
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/telegram':
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def do_POST(self):
+        # POST запросы от Telegram обрабатываются PTB
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'OK')
+    
+    def log_message(self, format, *args):
+        logger.info(f"{self.address_string()} - {format % args}")
+
+def start_health_server():
+    server = HTTPServer(('0.0.0.0', PORT), HealthHandler)
+    logger.info(f"Health server running on port {PORT}")
+    server.serve_forever()
 
 # ================= ФУНКЦИЯ СКАЧИВАНИЯ =================
 def sync_download_video(url):
@@ -82,13 +109,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text("❌ Ошибка. Попробуйте позже.")
 
 # ================= ЗАПУСК =================
-def main():
+async def run_bot():
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
-    
-    if not TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN not set!")
-        return
     
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
@@ -97,12 +120,17 @@ def main():
     webhook_url = f"{APP_URL}/telegram"
     logger.info(f"Setting webhook: {webhook_url}")
     
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path="telegram",
-        webhook_url=webhook_url
-    )
+    await application.bot.set_webhook(url=webhook_url)
+    
+    # Запускаем health server в отдельном потоке
+    threading.Thread(target=start_health_server, daemon=True).start()
+    
+    await application.initialize()
+    await application.start()
+    logger.info("Bot is running...")
+    
+    # Держим бота запущенным
+    await asyncio.Event().wait()
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(run_bot())
