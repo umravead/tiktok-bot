@@ -4,7 +4,6 @@ import asyncio
 import yt_dlp
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from flask import Flask, request
 
 # ================= НАСТРОЙКИ =================
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -16,13 +15,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-# Flask приложение для health check
-flask_app = Flask(__name__)
-
-@flask_app.route('/telegram', methods=['GET', 'POST'])
-def telegram_webhook():
-    return 'OK', 200
 
 # ================= ФУНКЦИЯ СКАЧИВАНИЯ =================
 def sync_download_video(url):
@@ -90,7 +82,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text("❌ Ошибка. Попробуйте позже.")
 
 # ================= ЗАПУСК =================
-async def main():
+def main():
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
     
@@ -105,13 +97,7 @@ async def main():
     webhook_url = f"{APP_URL}/telegram"
     logger.info(f"Setting webhook: {webhook_url}")
     
-    await application.bot.set_webhook(url=webhook_url)
-    
-    # Запускаем Flask для health check и PTB для вебхука
-    from threading import Thread
-    Thread(target=lambda: flask_app.run(host="0.0.0.0", port=PORT)).start()
-    
-    await application.run_webhook(
+    application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path="telegram",
@@ -119,4 +105,4 @@ async def main():
     )
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
