@@ -6,13 +6,9 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ================= НАСТРОЙКИ =================
-# Для Render: токен будет в переменных окружения
-# Для локального запуска: создайте переменную TELEGRAM_BOT_TOKEN или впишите токен прямо сюда
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "ВАШ_ТОКЕН_ЕСЛИ_ЛОКАЛЬНО")
-
-# Render автоматически подставляет URL приложения
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
-PORT = int(os.environ.get("PORT", 8000))
+PORT = int(os.environ.get("PORT", 10000))
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -22,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 # ================= ФУНКЦИЯ СКАЧИВАНИЯ =================
 def sync_download_video(url):
-    """Скачивает видео с TikTok без водяного знака"""
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
     
@@ -31,28 +26,20 @@ def sync_download_video(url):
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
-        'extract_flat': False,
     }
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            logger.info(f"Downloading: {url}")
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            
-            if not os.path.exists(filename):
-                video_id = info.get('id')
-                for f in os.listdir('downloads'):
-                    if video_id in f and f.endswith(('.mp4', '.mkv', '.webm')):
-                        filename = os.path.join('downloads', f)
-                        break
-            
-            logger.info(f"Downloaded: {filename}")
-            return filename
-            
-    except Exception as e:
-        logger.error(f"Download error: {e}")
-        raise e
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        
+        if not os.path.exists(filename):
+            video_id = info.get('id')
+            for f in os.listdir('downloads'):
+                if video_id in f and f.endswith(('.mp4', '.mkv', '.webm')):
+                    filename = os.path.join('downloads', f)
+                    break
+        
+        return filename
 
 # ================= ОБРАБОТЧИКИ =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,35 +79,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         logger.error(f"Error: {e}")
-        await status_msg.edit_text(f"❌ Ошибка. Попробуйте позже.")
+        await status_msg.edit_text("❌ Ошибка. Попробуйте позже.")
 
 # ================= ЗАПУСК =================
 def main():
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
     
-    if TOKEN == "ВАШ_ТОКЕН_ЕСЛИ_ЛОКАЛЬНО":
-        print("❌ Впишите токен в код или создайте переменную TELEGRAM_BOT_TOKEN")
+    if not TOKEN:
+        logger.error("TELEGRAM_BOT_TOKEN not set!")
         return
     
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Используем Application напрямую
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Если есть APP_URL — значит мы на Render, используем webhook
-    if APP_URL:
-        webhook_url = f"{APP_URL}/telegram"
-        logger.info(f"Running on Render. Webhook: {webhook_url}")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path="telegram",
-            webhook_url=webhook_url
-        )
-    else:
-        # Локальный запуск — используем polling
-        logger.info("Running locally. Using polling.")
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+    webhook_url = f"{APP_URL}/telegram"
+    logger.info(f"Setting webhook: {webhook_url}")
+    
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path="telegram",
+        webhook_url=webhook_url
+    )
 
 if __name__ == '__main__':
     main()
