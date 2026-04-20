@@ -44,9 +44,8 @@ def sync_download_video(url):
     
     if is_youtube:
         ydl_opts.update({
-            'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best',
+            'format': 'best[height<=720]',
             'cookiefile': 'cookies.txt',
-            'merge_output_format': 'mp4',
         })
     elif is_tiktok:
         ydl_opts.update({
