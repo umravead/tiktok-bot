@@ -24,11 +24,10 @@ loop = None
 
 # ================= ФУНКЦИЯ СКАЧИВАНИЯ =================
 def sync_download_video(url):
-    """Скачивает видео с YouTube, TikTok, Instagram и Snapchat"""
+    """Скачивает видео с TikTok, Instagram и Snapchat"""
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
     
-    is_youtube = 'youtube.com' in url or 'youtu.be' in url
     is_tiktok = 'tiktok.com' in url
     is_instagram = 'instagram.com' in url
     is_snapchat = 'snapchat.com' in url
@@ -42,12 +41,7 @@ def sync_download_video(url):
         }
     }
     
-    if is_youtube:
-        ydl_opts.update({
-            'format': 'best[height<=720]',
-            'cookiefile': 'cookies.txt',
-        })
-    elif is_tiktok:
+    if is_tiktok:
         ydl_opts.update({
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         })
@@ -89,7 +83,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 *Привет! Я бот для скачивания видео!*\n\n"
         "📱 *Поддерживаемые платформы:*\n"
-        "• YouTube\n"
         "• TikTok (без водяного знака)\n"
         "• Instagram Reels\n"
         "• Snapchat\n\n"
@@ -105,8 +98,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2️⃣ Подожди 5-15 секунд\n"
         "3️⃣ Получи видео!\n\n"
         "⚠️ *Ограничения:*\n"
-        "• Максимальный размер: 50 МБ\n"
-        "• YouTube: до 720p\n\n"
+        "• Максимальный размер: 50 МБ\n\n"
         "❓ *Не работает?* Попробуй другую ссылку.",
         parse_mode='Markdown'
     )
@@ -115,11 +107,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     chat_id = update.message.chat_id
     
-    supported = ['tiktok.com', 'instagram.com', 'youtube.com', 'youtu.be', 'snapchat.com']
+    supported = ['tiktok.com', 'instagram.com', 'snapchat.com']
     if not any(s in url for s in supported):
         await update.message.reply_text(
             "❌ *Ссылка не поддерживается!*\n\n"
-            "Поддерживаются: YouTube, TikTok, Instagram, Snapchat.",
+            "Поддерживаются: TikTok, Instagram, Snapchat.",
             parse_mode='Markdown'
         )
         return
@@ -128,10 +120,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         site = 'TikTok'
     elif 'instagram.com' in url:
         site = 'Instagram'
-    elif 'snapchat.com' in url:
-        site = 'Snapchat'
     else:
-        site = 'YouTube'
+        site = 'Snapchat'
     
     status_msg = await update.message.reply_text(f"⏳ Скачиваю с {site}...")
     
