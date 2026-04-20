@@ -35,8 +35,9 @@ def sync_download_video(url, download_type='video'):
     is_instagram = 'instagram.com' in url
     is_snapchat = 'snapchat.com' in url
     
+    # Используем только ID видео как имя файла (коротко и уникально)
     ydl_opts = {
-        'outtmpl': 'downloads/%(title)s_%(id)s.%(ext)s',
+        'outtmpl': 'downloads/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
         'http_headers': {
@@ -45,7 +46,6 @@ def sync_download_video(url, download_type='video'):
     }
     
     if download_type == 'audio':
-        # Настройки для скачивания только аудио в MP3
         ydl_opts.update({
             'format': 'bestaudio/best',
             'postprocessors': [{
@@ -55,7 +55,6 @@ def sync_download_video(url, download_type='video'):
             }],
         })
     else:
-        # Настройки для скачивания видео
         if is_tiktok:
             ydl_opts.update({
                 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -147,10 +146,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         site = 'Snapchat'
     
-    # Сохраняем URL для этого пользователя
     user_data[chat_id] = {'url': url, 'site': site}
     
-    # Создаём кнопки выбора
     keyboard = [
         [
             InlineKeyboardButton("🎬 Скачать видео", callback_data='video'),
@@ -179,7 +176,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = user_data[chat_id]
     url = data['url']
     site = data['site']
-    download_type = query.data  # 'video' или 'audio'
+    download_type = query.data
     
     type_text = "видео" if download_type == 'video' else "аудио"
     await query.edit_message_text(f"⏳ Скачиваю {type_text} с {site}...")
@@ -212,7 +209,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         chat_id=chat_id,
                         audio=f,
                         caption=f"✅ Готово! Аудио с {site}",
-                        title=os.path.basename(file_path).replace('.mp3', '')
+                        title=f"{site}_audio"
                     )
             
             await query.delete_message()
@@ -236,7 +233,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text(msg)
     
-    # Очищаем данные пользователя
     if chat_id in user_data:
         del user_data[chat_id]
 
