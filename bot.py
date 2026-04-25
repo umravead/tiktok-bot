@@ -8,6 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import re
 
 # ================= НАСТРОЙКИ =================
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -30,8 +31,12 @@ def download_tiktok_photos(url):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
     
+    # Очищаем URL от параметров
+    clean_url = url.split('?')[0]
+    logger.info(f"Downloading photos from: {clean_url}")
+    
     api_url = "https://www.tikwm.com/api/"
-    params = {"url": url}
+    params = {"url": clean_url}
     
     try:
         response = requests.get(api_url, params=params, timeout=30)
@@ -44,7 +49,6 @@ def download_tiktok_photos(url):
         if not images:
             raise Exception("No images found")
         
-        # Скачиваем все фото
         downloaded_files = []
         for i, img_url in enumerate(images):
             img_response = requests.get(img_url, timeout=30)
@@ -66,9 +70,12 @@ def sync_download_video(url, download_type='video'):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
     
-    is_tiktok = 'tiktok.com' in url
-    is_instagram = 'instagram.com' in url
-    is_snapchat = 'snapchat.com' in url
+    # Очищаем URL для yt-dlp
+    clean_url = url.split('?')[0]
+    
+    is_tiktok = 'tiktok.com' in clean_url
+    is_instagram = 'instagram.com' in clean_url
+    is_snapchat = 'snapchat.com' in clean_url
     
     ydl_opts = {
         'outtmpl': 'downloads/%(id)s.%(ext)s',
@@ -108,8 +115,8 @@ def sync_download_video(url, download_type='video'):
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            logger.info(f"Downloading {download_type}: {url}")
-            info = ydl.extract_info(url, download=True)
+            logger.info(f"Downloading {download_type}: {clean_url}")
+            info = ydl.extract_info(clean_url, download=True)
             
             if download_type == 'audio':
                 filename = ydl.prepare_filename(info)
@@ -154,8 +161,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3️⃣ Для видео — выбери формат\n"
         "4️⃣ Получи файл!\n\n"
         "⚠️ *Ограничения:*\n"
-        "• Максимум 50 МБ\n"
-        "• Аудио: MP3 192 kbps",
+        "• Максимум 50 МБ",
         parse_mode='Markdown'
     )
 
@@ -163,8 +169,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     chat_id = update.message.chat_id
     
+    # Очищаем URL для проверки
+    clean_url = url.split('?')[0]
+    
     supported = ['tiktok.com', 'instagram.com', 'snapchat.com']
-    if not any(s in url for s in supported):
+    if not any(s in clean_url for s in supported):
         await update.message.reply_text(
             "❌ *Ссылка не поддерживается!*\n\n"
             "Поддерживаются: TikTok, Instagram, Snapchat.",
@@ -173,7 +182,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Проверяем, это фото из TikTok?
-    if 'tiktok.com' in url and '/photo/' in url:
+    if 'tiktok.com' in clean_url and '/photo/' in clean_url:
+        logger.info(f"Detected TikTok photo URL: {url}")
         status_msg = await update.message.reply_text("⏳ Скачиваю фото из TikTok...")
         
         try:
@@ -190,16 +200,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 await status_msg.edit_text("📤 Отправляю фото...")
                 
-                # Отправляем фото группой (альбомом)
-                media_group = []
-                for file_path in photo_files:
-                    with open(file_path, 'rb') as f:
-                        media_group.append(telegram.InputMediaPhoto(f))
+                # Отправляем фото
+                if len(photo_files) == 1:
+                    with open(photo_files[0], 'rb') as f:
+                        await context.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=f,
+                            caption="✅ Готово! Фото из TikTok"
+                        )
+                else:
+                    media_group = []
+                    for file_path in photo_files:
+                        with open(file_path, 'rb') as f:
+                            media_group.append(telegram.InputMediaPhoto(f.read()))
+                    await context.bot.send_media_group(chat_id=chat_id, media=media_group)
                 
-                await context.bot.send_media_group(chat_id=chat_id, media=media_group)
                 await status_msg.delete()
                 
-                # Удаляем файлы
                 for f in photo_files:
                     os.remove(f)
             else:
@@ -211,10 +228,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return
     
-    # Для видео/аудио — прежняя логика с кнопками
-    if 'tiktok.com' in url:
+    # Для видео/аудио
+    if 'tiktok.com' in clean_url:
         site = 'TikTok'
-    elif 'instagram.com' in url:
+    elif 'instagram.com' in clean_url:
         site = 'Instagram'
     else:
         site = 'Snapchat'
@@ -288,7 +305,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(file_path)
             
         else:
-            await query.edit_message_text("❌ Не удалось скачать. Возможно, контент удалён.")
+            await query.edit_message_text("❌ Не удалось скачать.")
             
     except Exception as e:
         err = str(e)
