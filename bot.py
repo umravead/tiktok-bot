@@ -3,6 +3,7 @@ import logging
 import asyncio
 import yt_dlp
 import json
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -21,11 +22,45 @@ logger = logging.getLogger(__name__)
 
 app = None
 loop = None
-
-# Хранилище для временных данных пользователей
 user_data = {}
 
-# ================= ФУНКЦИЯ СКАЧИВАНИЯ =================
+# ================= ФУНКЦИЯ СКАЧИВАНИЯ ФОТО ИЗ TIKTOK =================
+def download_tiktok_photos(url):
+    """Скачивает фото из TikTok через API tikwm.com"""
+    if not os.path.exists("downloads"):
+        os.makedirs("downloads")
+    
+    api_url = "https://www.tikwm.com/api/"
+    params = {"url": url}
+    
+    try:
+        response = requests.get(api_url, params=params, timeout=30)
+        data = response.json()
+        
+        if data.get("code") != 0:
+            raise Exception(f"API Error: {data.get('msg', 'Unknown error')}")
+        
+        images = data.get("data", {}).get("images", [])
+        if not images:
+            raise Exception("No images found")
+        
+        # Скачиваем все фото
+        downloaded_files = []
+        for i, img_url in enumerate(images):
+            img_response = requests.get(img_url, timeout=30)
+            filename = os.path.join("downloads", f"tiktok_photo_{i+1}.jpg")
+            with open(filename, "wb") as f:
+                f.write(img_response.content)
+            downloaded_files.append(filename)
+            logger.info(f"Downloaded photo: {filename}")
+        
+        return downloaded_files
+        
+    except Exception as e:
+        logger.error(f"Photo download error: {e}")
+        raise e
+
+# ================= ФУНКЦИЯ СКАЧИВАНИЯ ВИДЕО/АУДИО =================
 def sync_download_video(url, download_type='video'):
     """Скачивает видео или аудио с TikTok, Instagram и Snapchat"""
     if not os.path.exists("downloads"):
@@ -35,7 +70,6 @@ def sync_download_video(url, download_type='video'):
     is_instagram = 'instagram.com' in url
     is_snapchat = 'snapchat.com' in url
     
-    # Используем только ID видео как имя файла (коротко и уникально)
     ydl_opts = {
         'outtmpl': 'downloads/%(id)s.%(ext)s',
         'quiet': True,
@@ -100,29 +134,28 @@ def sync_download_video(url, download_type='video'):
 # ================= ОБРАБОТЧИКИ =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 *Привет! Я бот для скачивания видео и аудио!*\n\n"
+        "👋 *Привет! Я бот для скачивания видео, аудио и фото!*\n\n"
         "📱 *Поддерживаемые платформы:*\n"
-        "• TikTok (без водяного знака)\n"
+        "• TikTok (видео, аудио, фото)\n"
         "• Instagram Reels\n"
         "• Snapchat\n\n"
-        "🔗 *Просто отправь мне ссылку*, и я предложу выбрать:\n"
-        "• 🎬 Скачать видео\n"
-        "• 🎵 Скачать аудио (MP3)\n\n"
-        "🆘 */help* — помощь и ограничения",
+        "🔗 *Отправь мне ссылку*, и я всё сделаю!\n"
+        "Для видео и аудио — предложу выбор формата.\n"
+        "Для фото — скачаю автоматически.\n\n"
+        "🆘 */help* — помощь",
         parse_mode='Markdown'
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🆘 *Помощь по использованию*\n\n"
-        "1️⃣ Отправь ссылку на видео\n"
-        "2️⃣ Выбери: видео или аудио\n"
-        "3️⃣ Подожди 5-15 секунд\n"
+        "🆘 *Помощь*\n\n"
+        "1️⃣ Отправь ссылку\n"
+        "2️⃣ Для фото — сразу скачаю\n"
+        "3️⃣ Для видео — выбери формат\n"
         "4️⃣ Получи файл!\n\n"
         "⚠️ *Ограничения:*\n"
-        "• Максимальный размер: 50 МБ\n"
-        "• Аудио: MP3 192 kbps\n\n"
-        "❓ *Не работает?* Попробуй другую ссылку.",
+        "• Максимум 50 МБ\n"
+        "• Аудио: MP3 192 kbps",
         parse_mode='Markdown'
     )
 
@@ -139,6 +172,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # Проверяем, это фото из TikTok?
+    if 'tiktok.com' in url and '/photo/' in url:
+        status_msg = await update.message.reply_text("⏳ Скачиваю фото из TikTok...")
+        
+        try:
+            photo_files = await asyncio.to_thread(download_tiktok_photos, url)
+            
+            if photo_files:
+                total_size = sum(os.path.getsize(f) for f in photo_files) / (1024 * 1024)
+                
+                if total_size > 50:
+                    await status_msg.edit_text(f"❌ Фото слишком тяжёлые: {total_size:.1f} МБ")
+                    for f in photo_files:
+                        os.remove(f)
+                    return
+                
+                await status_msg.edit_text("📤 Отправляю фото...")
+                
+                # Отправляем фото группой (альбомом)
+                media_group = []
+                for file_path in photo_files:
+                    with open(file_path, 'rb') as f:
+                        media_group.append(telegram.InputMediaPhoto(f))
+                
+                await context.bot.send_media_group(chat_id=chat_id, media=media_group)
+                await status_msg.delete()
+                
+                # Удаляем файлы
+                for f in photo_files:
+                    os.remove(f)
+            else:
+                await status_msg.edit_text("❌ Не удалось скачать фото.")
+                
+        except Exception as e:
+            logger.error(f"Photo error: {e}")
+            await status_msg.edit_text("❌ Ошибка при скачивании фото.")
+        
+        return
+    
+    # Для видео/аудио — прежняя логика с кнопками
     if 'tiktok.com' in url:
         site = 'TikTok'
     elif 'instagram.com' in url:
@@ -157,8 +230,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        f"🔗 *Ссылка получена!* ({site})\n\n"
-        "Что будем скачивать?",
+        f"🔗 *Ссылка получена!* ({site})\n\nЧто скачиваем?",
         parse_mode='Markdown',
         reply_markup=reply_markup
     )
@@ -200,7 +272,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_video(
                         chat_id=chat_id,
                         video=f,
-                        caption=f"✅ Готово! Видео с {site}",
+                        caption=f"✅ Готово! {site}",
                         supports_streaming=True
                     )
             else:
@@ -216,20 +288,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(file_path)
             
         else:
-            await query.edit_message_text("❌ Не удалось скачать. Возможно, видео удалено.")
+            await query.edit_message_text("❌ Не удалось скачать. Возможно, контент удалён.")
             
     except Exception as e:
         err = str(e)
         logger.error(f"Error: {err}")
         
-        if "login" in err.lower() or "cookie" in err.lower():
-            msg = f"❌ {site} требует авторизацию. Попробуй другую ссылку."
+        if "login" in err.lower():
+            msg = f"❌ {site} требует авторизацию."
         elif "not found" in err.lower():
-            msg = "❌ Видео не найдено."
-        elif "ffmpeg" in err.lower():
-            msg = "❌ Ошибка конвертации аудио. Попробуй позже."
+            msg = "❌ Контент не найден."
         else:
-            msg = f"❌ Ошибка. Попробуй позже."
+            msg = "❌ Ошибка. Попробуй позже."
         
         await query.edit_message_text(msg)
     
