@@ -8,7 +8,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
-import re
 
 # ================= НАСТРОЙКИ =================
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -31,7 +30,6 @@ def download_tiktok_photos(url):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
     
-    # Очищаем URL от параметров
     clean_url = url.split('?')[0]
     logger.info(f"Downloading photos from: {clean_url}")
     
@@ -70,7 +68,6 @@ def sync_download_video(url, download_type='video'):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
     
-    # Очищаем URL для yt-dlp
     clean_url = url.split('?')[0]
     
     is_tiktok = 'tiktok.com' in clean_url
@@ -169,7 +166,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     chat_id = update.message.chat_id
     
-    # Очищаем URL для проверки
     clean_url = url.split('?')[0]
     
     supported = ['tiktok.com', 'instagram.com', 'snapchat.com']
@@ -182,9 +178,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Проверяем, это фото?
-    logger.info(f"DEBUG: clean_url = {clean_url}")
-    logger.info(f"DEBUG: /photo/ in url = {'/photo/' in clean_url}")
-    
     if '/photo/' in clean_url:
         logger.info(f"Detected photo URL: {url}")
         status_msg = await update.message.reply_text("⏳ Скачиваю фото из TikTok...")
@@ -203,82 +196,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 await status_msg.edit_text("📤 Отправляю фото...")
                 
-                # Отправляем фото
-                if len(photo_files) == 1:
-                    with open(photo_files[0], 'rb') as f:
-                        await context.bot.send_photo(
-                            chat_id=chat_id,
-                            photo=f,
-                            caption="✅ Готово! Фото из TikTok"
-                        )
-                else:
-                    media_group = []
-                    for file_path in photo_files:
-                        with open(file_path, 'rb') as f:
-                            media_group.append(telegram.InputMediaPhoto(f.read()))
-                    await context.bot.send_media_group(chat_id=chat_id, media=media_group)
-                
-                await status_msg.delete()
-                
-                for f in photo_files:
-                    os.remove(f)
-            else:
-                await status_msg.edit_text("❌ Не удалось скачать фото.")
-                
-        except Exception as e:
-            logger.error(f"Photo error: {e}")
-            await status_msg.edit_text("❌ Ошибка при скачивании фото.")
-        
-        return
-    
-    # Для видео/аудио
-    if 'tiktok.com' in clean_url:
-        site = 'TikTok'
-    elif 'instagram.com' in clean_url:
-        site = 'Instagram'
-    else:
-        site = 'Snapchat'
-    
-    user_data[chat_id] = {'url': url, 'site': site}
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("🎬 Скачать видео", callback_data='video'),
-            InlineKeyboardButton("🎵 Скачать аудио", callback_data='audio'),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        f"🔗 *Ссылка получена!* ({site})\n\nЧто скачиваем?",
-        parse_mode='Markdown',
-        reply_markup=reply_markup
-    )
-    
-       # Проверяем, это фото из TikTok?
-    logger.info(f"DEBUG: clean_url = {clean_url}")
-    logger.info(f"DEBUG: tiktok.com in url = {'tiktok.com' in clean_url}")
-    logger.info(f"DEBUG: /photo/ in url = {'/photo/' in clean_url}")
-    
-    if '/photo/' in clean_url:
-        logger.info(f"Detected TikTok photo URL: {url}")
-        status_msg = await update.message.reply_text("⏳ Скачиваю фото из TikTok...")
-        
-        try:
-            photo_files = await asyncio.to_thread(download_tiktok_photos, url)
-            
-            if photo_files:
-                total_size = sum(os.path.getsize(f) for f in photo_files) / (1024 * 1024)
-                
-                if total_size > 50:
-                    await status_msg.edit_text(f"❌ Фото слишком тяжёлые: {total_size:.1f} МБ")
-                    for f in photo_files:
-                        os.remove(f)
-                    return
-                
-                await status_msg.edit_text("📤 Отправляю фото...")
-                
-                # Отправляем фото
                 if len(photo_files) == 1:
                     with open(photo_files[0], 'rb') as f:
                         await context.bot.send_photo(
